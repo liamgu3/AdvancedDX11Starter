@@ -62,5 +62,13 @@ private:
 
 	// Initialization helper method
 	void LoadAssetsAndCreateEntities();
+
+	//ImGui helperMethods
+	void ImGuiUpdate(float deltaTime);
+
+	//ImGui Adjustable values
+	int entitiesCount;
+	int tempLightCount;
+	float entitySize;
 };
 

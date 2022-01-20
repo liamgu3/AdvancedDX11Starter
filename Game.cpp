@@ -8,6 +8,9 @@
 
 #include "WICTextureLoader.h"
 
+#include "ImGui/imgui.h"
+#include "ImGui/imgui_impl_dx11.h"
+#include "ImGui/imgui_impl_win32.h"
 
 // Needed for a helper function to read compiled shader files from the hard drive
 #pragma comment(lib, "d3dcompiler.lib")
@@ -67,6 +70,11 @@ Game::~Game()
 	// we don't need to explicitly clean up those DirectX objects
 	// - If we weren't using smart pointers, we'd need
 	//   to call Release() on each DirectX object
+
+	//ImGui clean up
+	ImGui_ImplDX11_Shutdown();
+	ImGui_ImplWin32_Shutdown();
+	ImGui::DestroyContext();
 }
 
 // --------------------------------------------------------
@@ -85,6 +93,7 @@ void Game::Init()
 
 	// Set up lights initially
 	lightCount = 64;
+	tempLightCount = lightCount;
 	GenerateLights();
 
 	// Make our camera
@@ -93,6 +102,23 @@ void Game::Init()
 		3.0f,		// Move speed
 		1.0f,		// Mouse look
 		this->width / (float)this->height); // Aspect ratio
+
+	//ImGui
+	//Initializing
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+
+	//Style
+	//ImGui::StyleColorsDark();
+	//ImGui::StyleColorsLight();
+	ImGui::StyleColorsClassic();
+
+	//Setup Platform/Renderer backends
+	ImGui_ImplWin32_Init(hWnd);
+	ImGui_ImplDX11_Init(device.Get(), context.Get());
+
+	//ImGui variables
+	entitySize = 1.0f;
 }
 
 
@@ -360,6 +386,9 @@ void Game::LoadAssetsAndCreateEntities()
 	entities.push_back(roughSphere);
 	entities.push_back(woodSphere);
 
+	//set entitiesCount
+	entitiesCount = entities.size();
+
 
 	// Save assets needed for drawing point lights
 	lightMesh = sphereMesh;
@@ -438,6 +467,8 @@ void Game::OnResize()
 // --------------------------------------------------------
 void Game::Update(float deltaTime, float totalTime)
 {
+	ImGuiUpdate(deltaTime);
+
 	// Update the camera
 	camera->Update(deltaTime);
 
@@ -445,6 +476,8 @@ void Game::Update(float deltaTime, float totalTime)
 	Input& input = Input::GetInstance();
 	if (input.KeyDown(VK_ESCAPE)) Quit();
 	if (input.KeyPress(VK_TAB)) GenerateLights();
+
+
 }
 
 // --------------------------------------------------------
@@ -467,21 +500,22 @@ void Game::Draw(float deltaTime, float totalTime)
 
 
 	// Draw all of the entities
-	for (auto& ge : entities)
+	//for (auto& ge : entities)
+	for(int i = 0; i < entitiesCount; i++)
 	{
 		// Set the "per frame" data
 		// Note that this should literally be set once PER FRAME, before
 		// the draw loop, but we're currently setting it per entity since 
 		// we are just using whichever shader the current entity has.  
 		// Inefficient!!!
-		std::shared_ptr<SimplePixelShader> ps = ge->GetMaterial()->GetPixelShader();
-		ps->SetData("lights", (void*)(&lights[0]), sizeof(Light) * lightCount);
-		ps->SetInt("lightCount", lightCount);
+		std::shared_ptr<SimplePixelShader> ps = entities[i]->GetMaterial()->GetPixelShader();
+		ps->SetData("lights", (void*)(&lights[0]), sizeof(Light) * tempLightCount);
+		ps->SetInt("lightCount", tempLightCount);
 		ps->SetFloat3("cameraPosition", camera->GetTransform()->GetPosition());
 		ps->CopyBufferData("perFrame");
 
 		// Draw the entity
-		ge->Draw(context, camera);
+		entities[i]->Draw(context, camera);
 	}
 
 	// Draw the light sources
@@ -493,6 +527,9 @@ void Game::Draw(float deltaTime, float totalTime)
 	// Draw some UI
 	DrawUI();
 
+	//Draw ImGui
+	ImGui::Render();
+	ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
 	// Present the back buffer to the user
 	//  - Puts the final frame we're drawing into the window so the user can see it
@@ -518,7 +555,7 @@ void Game::DrawPointLights()
 	lightVS->SetMatrix4x4("view", camera->GetView());
 	lightVS->SetMatrix4x4("projection", camera->GetProjection());
 
-	for (int i = 0; i < lightCount; i++)
+	for (int i = 0; i < tempLightCount; i++)
 	{
 		Light light = lights[i];
 
@@ -589,5 +626,87 @@ void Game::DrawUI()
 	// Reset render states, since sprite batch changes these!
 	context->OMSetBlendState(0, 0, 0xFFFFFFFF);
 	context->OMSetDepthStencilState(0, 0);
+
+}
+
+//helper for ImGui Update
+void Game::ImGuiUpdate(float deltaTime)
+{
+	Input& input = Input::GetInstance();
+
+	//Reset input manager's gui state so we don't taint our own input (uncomment later)
+	input.SetGuiKeyboardCapture(false);
+	input.SetGuiMouseCapture(false);
+
+	//Set io info
+	ImGuiIO& io = ImGui::GetIO();
+	io.DeltaTime = deltaTime;
+	io.DisplaySize.x = (float)this->width;
+	io.DisplaySize.y = (float)this->height;
+	io.KeyCtrl = input.KeyDown(VK_CONTROL);
+	io.KeyShift = input.KeyDown(VK_SHIFT);
+	io.KeyAlt = input.KeyDown(VK_MENU);
+	io.MousePos.x = (float)input.GetMouseX();
+	io.MousePos.y = (float)input.GetMouseY();
+	io.MouseDown[0] = input.MouseLeftDown();
+	io.MouseDown[1] = input.MouseRightDown();
+	io.MouseDown[2] = input.MouseMiddleDown();
+	io.MouseWheel = input.GetMouseWheel();
+	input.GetKeyArray(io.KeysDown, 256);
+
+	//Reset the frame
+	ImGui_ImplDX11_NewFrame();
+	ImGui_ImplWin32_NewFrame();
+	ImGui::NewFrame();
+
+	//Determine new input capture (uncomment later)
+	input.SetGuiKeyboardCapture(io.WantCaptureKeyboard);
+	input.SetGuiMouseCapture(io.WantCaptureMouse);
+
+	//Show the demo window
+	ImGui::ShowDemoWindow();
+
+
+	ImGui::Begin("Program Stats");
+
+	int framerate = io.Framerate;
+	ImGui::Text("FPS: %1.0f", io.Framerate);
+	ImGui::Text("Width: %d", width);
+	ImGui::Text("Height: %d", height);
+	ImGui::Text("Aspect Ratio: %.1f", (float)width / (float)height);
+
+	//adjustables
+	//Entities
+	ImGui::Text("Entity Count %d", entities.size());
+	ImGui::SliderInt("Entity Count", &entitiesCount, 0, entities.size());
+
+	for (int i = 0; i < entitiesCount; i++)
+	{
+		float localScale = entities[i]->GetTransform()->GetScale().x;
+		std::string iStr = "Entity " + std::to_string(i) + " Scale";
+		ImGui::SliderFloat(iStr.c_str(), &localScale, 0.0f, 3.0f);
+		entities[i]->GetTransform()->SetScale(localScale, localScale, localScale);
+	}
+
+	//Lights
+	ImGui::Text("Light Count: %d", lights.size());
+	ImGui::SliderInt("Light Count", &tempLightCount, 0, lights.size());
+
+	ImGui::BeginGroup();
+
+	for (int i = 0; i < tempLightCount; i++)
+	{
+		std::string iStr = "Light " + std::to_string(i) + " Brightness";
+		ImGui::SliderFloat(iStr.c_str(), &lights[i].Intensity, 0.0f, 10.0f);
+	}
+	if (ImGui::Button("Generate New Lights"))
+	{
+		GenerateLights();
+	}
+
+	ImGui::EndGroup();
+
+	ImGui::End();
+
 
 }
