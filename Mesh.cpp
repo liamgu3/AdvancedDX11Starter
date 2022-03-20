@@ -2,15 +2,17 @@
 #include <DirectXMath.h>
 #include <vector>
 #include <fstream>
+#include "DX12Helper.h"
+#include <wrl/client.h>
 
 using namespace DirectX;
 
-Mesh::Mesh(Vertex* vertArray, int numVerts, unsigned int* indexArray, int numIndices, Microsoft::WRL::ComPtr<ID3D11Device> device)
+Mesh::Mesh(Vertex* vertArray, int numVerts, unsigned int* indexArray, int numIndices)
 {
-	CreateBuffers(vertArray, numVerts, indexArray, numIndices, device);
+	CreateBuffers(vertArray, numVerts, indexArray, numIndices);
 }
 
-Mesh::Mesh(const char* objFile, Microsoft::WRL::ComPtr<ID3D11Device> device)
+Mesh::Mesh(const char* objFile)
 {
 	// File input object
 	std::ifstream obj(objFile);
@@ -184,7 +186,10 @@ Mesh::Mesh(const char* objFile, Microsoft::WRL::ComPtr<ID3D11Device> device)
 	//    an index buffer in this case?  Sure!  Though, if your mesh class assumes you have
 	//    one, you'll need to write some extra code to handle cases when you don't.
 
-	CreateBuffers(&verts[0], vertCounter, &indices[0], vertCounter, device);
+	ibView = {};
+	vbView = {};
+
+	CreateBuffers(&verts[0], vertCounter, &indices[0], vertCounter);
 
 
 }
@@ -192,42 +197,56 @@ Mesh::Mesh(const char* objFile, Microsoft::WRL::ComPtr<ID3D11Device> device)
 
 Mesh::~Mesh(void)
 {
-
+	
 }
 
 
-void Mesh::CreateBuffers(Vertex* vertArray, int numVerts, unsigned int* indexArray, int numIndices, Microsoft::WRL::ComPtr<ID3D11Device> device)
+void Mesh::CreateBuffers(Vertex* vertArray, int numVerts, unsigned int* indexArray, int numIndices)
 {
+	this->numIndices = numIndices;
+
 	// Always calculate the tangents before copying to buffer
 	CalculateTangents(vertArray, numVerts, indexArray, numIndices);
 
+	DX12Helper& dx12Helper = DX12Helper::GetInstance();
+	vertexBuffer = dx12Helper.CreateStaticBuffer(sizeof(Vertex), numVerts, vertArray);
+	indexBuffer = dx12Helper.CreateStaticBuffer(sizeof(unsigned int), numIndices, indexArray);
 
-	// Create the vertex buffer
-	D3D11_BUFFER_DESC vbd;
-	vbd.Usage = D3D11_USAGE_IMMUTABLE;
-	vbd.ByteWidth = sizeof(Vertex) * numVerts; // Number of vertices
-	vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-	vbd.CPUAccessFlags = 0;
-	vbd.MiscFlags = 0;
-	vbd.StructureByteStride = 0;
-	D3D11_SUBRESOURCE_DATA initialVertexData;
-	initialVertexData.pSysMem = vertArray;
-	device->CreateBuffer(&vbd, &initialVertexData, vb.GetAddressOf());
+	// Set up the views
+	vbView.StrideInBytes = sizeof(Vertex);
+	vbView.SizeInBytes = sizeof(Vertex) * numVerts;
+	vbView.BufferLocation = vertexBuffer->GetGPUVirtualAddress();
 
-	// Create the index buffer
-	D3D11_BUFFER_DESC ibd;
-	ibd.Usage = D3D11_USAGE_IMMUTABLE;
-	ibd.ByteWidth = sizeof(unsigned int) * numIndices; // Number of indices
-	ibd.BindFlags = D3D11_BIND_INDEX_BUFFER;
-	ibd.CPUAccessFlags = 0;
-	ibd.MiscFlags = 0;
-	ibd.StructureByteStride = 0;
-	D3D11_SUBRESOURCE_DATA initialIndexData;
-	initialIndexData.pSysMem = indexArray;
-	device->CreateBuffer(&ibd, &initialIndexData, ib.GetAddressOf());
+	ibView.Format = DXGI_FORMAT_R32_UINT;
+	ibView.SizeInBytes = sizeof(unsigned int) * numIndices;
+	ibView.BufferLocation = indexBuffer->GetGPUVirtualAddress();
 
-	// Save the indices
-	this->numIndices = numIndices;
+	//// Create the vertex buffer
+	//D3D11_BUFFER_DESC vbd;
+	//vbd.Usage = D3D11_USAGE_IMMUTABLE;
+	//vbd.ByteWidth = sizeof(Vertex) * numVerts; // Number of vertices
+	//vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	//vbd.CPUAccessFlags = 0;
+	//vbd.MiscFlags = 0;
+	//vbd.StructureByteStride = 0;
+	//D3D11_SUBRESOURCE_DATA initialVertexData;
+	//initialVertexData.pSysMem = vertArray;
+	//device->CreateBuffer(&vbd, &initialVertexData, vb.GetAddressOf());
+	//
+	//// Create the index buffer
+	//D3D11_BUFFER_DESC ibd;
+	//ibd.Usage = D3D11_USAGE_IMMUTABLE;
+	//ibd.ByteWidth = sizeof(unsigned int) * numIndices; // Number of indices
+	//ibd.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	//ibd.CPUAccessFlags = 0;
+	//ibd.MiscFlags = 0;
+	//ibd.StructureByteStride = 0;
+	//D3D11_SUBRESOURCE_DATA initialIndexData;
+	//initialIndexData.pSysMem = indexArray;
+	//device->CreateBuffer(&ibd, &initialIndexData, ib.GetAddressOf());
+	//
+	//// Save the indices
+	//this->numIndices = numIndices;
 }
 
 
@@ -305,19 +324,4 @@ void Mesh::CalculateTangents(Vertex* verts, int numVerts, unsigned int* indices,
 		// Store the tangent
 		XMStoreFloat3(&verts[i].Tangent, tangent);
 	}
-}
-
-
-
-
-void Mesh::SetBuffersAndDraw(Microsoft::WRL::ComPtr<ID3D11DeviceContext> context)
-{
-	// Set buffers in the input assembler
-	UINT stride = sizeof(Vertex);
-	UINT offset = 0;
-	context->IASetVertexBuffers(0, 1, vb.GetAddressOf(), &stride, &offset);
-	context->IASetIndexBuffer(ib.Get(), DXGI_FORMAT_R32_UINT, 0);
-
-	// Draw this mesh
-	context->DrawIndexed(this->numIndices, 0, 0);
 }
