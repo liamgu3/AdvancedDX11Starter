@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DX12Helper.h"
+#include <d3d11.h>
 #include <wrl/client.h>
 
 #include "Vertex.h"
@@ -9,25 +9,23 @@
 class Mesh
 {
 public:
-	Mesh(Vertex* vertArray, int numVerts, unsigned int* indexArray, int numIndices);
-	Mesh(const char* objFile);
+	Mesh(Vertex* vertArray, int numVerts, unsigned int* indexArray, int numIndices, Microsoft::WRL::ComPtr<ID3D11Device> device);
+	Mesh(const char* objFile, Microsoft::WRL::ComPtr<ID3D11Device> device);
 	~Mesh(void);
 
-	D3D12_VERTEX_BUFFER_VIEW GetVertexBuffer() { return vbView; }
-	D3D12_INDEX_BUFFER_VIEW GetIndexBuffer() { return ibView; }
+	Microsoft::WRL::ComPtr<ID3D11Buffer> GetVertexBuffer() { return vb; }
+	Microsoft::WRL::ComPtr<ID3D11Buffer> GetIndexBuffer() { return ib; }
 	int GetIndexCount() { return numIndices; }
 
+	void SetBuffersAndDraw(Microsoft::WRL::ComPtr<ID3D11DeviceContext> context);
+
 private:
+	Microsoft::WRL::ComPtr<ID3D11Buffer> vb;
+	Microsoft::WRL::ComPtr<ID3D11Buffer> ib;
 	int numIndices;
 
-	void CreateBuffers(Vertex* vertArray, int numVerts, unsigned int* indexArray, int numIndices);
+	void CreateBuffers(Vertex* vertArray, int numVerts, unsigned int* indexArray, int numIndices, Microsoft::WRL::ComPtr<ID3D11Device> device);
 	void CalculateTangents(Vertex* verts, int numVerts, unsigned int* indices, int numIndices);
-
-	Microsoft::WRL::ComPtr<ID3D12Resource> vertexBuffer;
-	Microsoft::WRL::ComPtr<ID3D12Resource> indexBuffer;
-
-	D3D12_VERTEX_BUFFER_VIEW vbView;
-	D3D12_INDEX_BUFFER_VIEW ibView;
 
 };
 
